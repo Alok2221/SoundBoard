@@ -1,4 +1,5 @@
 using System.IO;
+using NAudio.CoreAudioApi;
 using NAudio.Vorbis;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -12,8 +13,8 @@ public sealed class AudioPlaybackService : IDisposable
     private bool _disposed;
     private float _masterVolume = 0.85f;
 
-    public int DiscordDeviceNumber { get; set; } = -1;
-    public int MonitorDeviceNumber { get; set; } = -1;
+    public string? DiscordDeviceId { get; set; }
+    public string? MonitorDeviceId { get; set; }
     public bool EnableMonitor { get; set; } = true;
     public bool OverlapSounds { get; set; } = true;
 
@@ -48,8 +49,8 @@ public sealed class AudioPlaybackService : IDisposable
         if (!OverlapSounds)
             StopAll();
 
-        var discordDevice = SanitizeDeviceNumber(DiscordDeviceNumber);
-        var monitorDevice = SanitizeDeviceNumber(MonitorDeviceNumber);
+        var discordDevice = DiscordDeviceId;
+        var monitorDevice = MonitorDeviceId;
 
         var session = new PlaybackSession
         {
@@ -67,9 +68,9 @@ public sealed class AudioPlaybackService : IDisposable
 
             if (EnableMonitor)
             {
-                // Playing twice to the same device number can fail on some Win11 drivers -
+                // Playing twice to the same device can fail on some Win11 drivers -
                 // when monitor == discord, skip the second output.
-                if (!EnableMonitorDuplicatesSameDevice(discordDevice, monitorDevice))
+                if (!SameDevice(discordDevice, monitorDevice))
                 {
                     session.MonitorReader = OpenReader(filePath);
                     session.MonitorVolume = CreateVolumeProvider(session.MonitorReader, EffectiveVolume(session.PadVolume));
@@ -121,27 +122,8 @@ public sealed class AudioPlaybackService : IDisposable
         RaisePlaybackStateChanged();
     }
 
-    private static bool EnableMonitorDuplicatesSameDevice(int discordDevice, int monitorDevice) =>
-        discordDevice == monitorDevice;
-
-    private static int SanitizeDeviceNumber(int deviceNumber)
-    {
-        if (deviceNumber < -1)
-            return -1;
-
-        try
-        {
-            var count = WaveOut.DeviceCount;
-            if (deviceNumber >= count)
-                return -1;
-        }
-        catch
-        {
-            return -1;
-        }
-
-        return deviceNumber;
-    }
+    private static bool SameDevice(string? a, string? b) =>
+        string.Equals(a ?? string.Empty, b ?? string.Empty, StringComparison.Ordinal);
 
     private void RefreshAllVolumes()
     {
@@ -191,13 +173,14 @@ public sealed class AudioPlaybackService : IDisposable
         }
     }
 
-    private static IWavePlayer CreateOutput(int deviceNumber)
+    private static IWavePlayer CreateOutput(string? deviceId)
     {
-        return new WaveOutEvent
-        {
-            DeviceNumber = deviceNumber,
-            DesiredLatency = 80
-        };
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return new WasapiOut(AudioClientShareMode.Shared, true, 80);
+
+        using var enumerator = new MMDeviceEnumerator();
+        var device = enumerator.GetDevice(deviceId);
+        return new WasapiOut(device, AudioClientShareMode.Shared, true, 80);
     }
 
     private static VolumeSampleProvider CreateVolumeProvider(WaveStream reader, float volume)

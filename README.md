@@ -22,6 +22,7 @@
 - Global hotkeys (work in the background)
 - Per-pad volume + master volume (live while playing)
 - Dual output: **Discord virtual cable** + local monitor
+- **Microphone passthrough** — Realtek / SteelSeries voice mixed with pads into the cable
 - Overlap sounds or play one at a time
 - Settings saved to `%AppData%\SoundboardApp\`
 - Windows 11–friendly MSI installer (self-contained, no .NET on target PC)
@@ -33,12 +34,15 @@ Soundboard cannot inject audio into Discord directly. Use a virtual cable:
 1. Install **[VB-Audio Virtual Cable](https://vb-audio.com/Cable/)** (free).
 2. In Soundboard:
    - **Discord output** → `CABLE Input`
+   - **Microphone** → your real mic (Realtek / SteelSeries / etc.) — voice is mixed onto the cable
    - **Monitor** → your headphones / speakers
 3. In Discord → **Settings → Voice & Video → Input Device** → `CABLE Output`.
 4. Turn down / off Discord **AGC**, **Noise Suppression**, and **Echo Cancellation** (they can duck samples).
 
 ```
-[Soundboard] ──► CABLE Input ──► CABLE Output ──► Discord (mic)
+[Your mic] ──┐
+             ├──► CABLE Input ──► CABLE Output ──► Discord (mic)
+[Soundboard] ┘
        │
        └──► headphones (monitor)
 ```
@@ -111,7 +115,7 @@ Allowed global shortcuts: **F1–F24**, or any combo with **Ctrl / Alt / Shift**
 ## Security (Windows 11)
 
 - Runs as a normal user (`asInvoker`) - no admin elevation
-- Does **not** use the microphone (output devices only; Discord needs mic permission for the cable)
+- Does **not** require Discord mic permission for pads alone; **microphone passthrough** uses Windows mic permission when enabled
 - Writes settings only under `%AppData%\SoundboardApp\`
 - If Defender **Controlled Folder Access** blocks your sound folders, add an exception
 

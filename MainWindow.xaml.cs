@@ -16,11 +16,12 @@ public partial class MainWindow : Window
         TrySetWindowIcon();
 
         var playback = new AudioPlaybackService();
+        var micPassthrough = new MicPassthroughService();
         var devices = new AudioDeviceService();
         var settings = new SettingsService();
         var hotkeys = new HotkeyService();
 
-        _viewModel = new MainViewModel(playback, devices, settings, hotkeys);
+        _viewModel = new MainViewModel(playback, micPassthrough, devices, settings, hotkeys);
         DataContext = _viewModel;
 
         Loaded += (_, _) => _viewModel.Initialize(this);

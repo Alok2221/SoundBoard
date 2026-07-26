@@ -72,6 +72,10 @@
         <!-- Discord / devices panel -->
         <Border Grid.Row="1" Style="{StaticResource PanelBorder}" Margin="0,0,0,14">
             <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="2*"/>
@@ -89,9 +93,9 @@
                                FontSize="11"
                                TextWrapping="Wrap"
                                Foreground="{StaticResource TextMutedBrush}">
-                        <Run Text="In Discord, set your microphone to "/>
+                        <Run Text="In Discord, set input to "/>
                         <Run Text="CABLE Output" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"/>
-                        <Run Text=" (VB-Audio Virtual Cable)."/>
+                        <Run Text=". Your real mic is selected below."/>
                     </TextBlock>
                 </StackPanel>
 
@@ -155,6 +159,43 @@
                                    FontWeight="SemiBold"
                                    FontSize="12"/>
                     </Border>
+                </StackPanel>
+
+                <!-- Microphone passthrough (Realtek / SteelSeries → CABLE Input) -->
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                            Margin="0,14,16,0">
+                    <TextBlock Text="MICROPHONE (voice → Discord via cable)"
+                               Style="{StaticResource SectionLabel}"/>
+                    <ComboBox ItemsSource="{Binding InputDevices}"
+                              SelectedItem="{Binding SelectedMicrophoneDevice}"
+                              DisplayMemberPath="Name"
+                              IsEnabled="{Binding EnableMicrophone}"/>
+                    <DockPanel Margin="0,8,0,0">
+                        <CheckBox Content="Send mic to Discord"
+                                  IsChecked="{Binding EnableMicrophone}"
+                                  VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding MicVolumePercent}"
+                                   DockPanel.Dock="Right"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   FontWeight="SemiBold"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Margin="12,0,0,0"
+                                   IsEnabled="{Binding EnableMicrophone}"/>
+                        <Slider Value="{Binding MicVolume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                Minimum="0"
+                                Maximum="1"
+                                SmallChange="0.01"
+                                LargeChange="0.05"
+                                Margin="16,0,0,0"
+                                VerticalAlignment="Center"
+                                IsEnabled="{Binding EnableMicrophone}"/>
+                    </DockPanel>
+                    <TextBlock Margin="0,6,0,0"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               Text="Pick Realtek or SteelSeries here. Discord stays on CABLE Output — your voice is mixed with soundboard pads."/>
                 </StackPanel>
             </Grid>
         </Border>

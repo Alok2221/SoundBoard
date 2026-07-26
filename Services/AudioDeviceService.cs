@@ -1,4 +1,4 @@
-using NAudio.Wave;
+using NAudio.CoreAudioApi;
 using SoundboardApp.Models;
 
 namespace SoundboardApp.Services;
@@ -13,57 +13,94 @@ public sealed class AudioDeviceService
         "virtual"
     ];
 
-    public IReadOnlyList<AudioDeviceInfo> GetOutputDevices()
+    private static readonly string[] StereoMixHints =
+    [
+        "stereo mix",
+        "miks stereo",
+        "what u hear",
+        "wave out mix"
+    ];
+
+    public IReadOnlyList<AudioDeviceInfo> GetOutputDevices() =>
+        Enumerate(DataFlow.Render, includeDefault: true);
+
+    public IReadOnlyList<AudioDeviceInfo> GetInputDevices() =>
+        Enumerate(DataFlow.Capture, includeDefault: true);
+
+    public AudioDeviceInfo? FindPreferredDiscordDevice(IEnumerable<AudioDeviceInfo> devices) =>
+        devices.FirstOrDefault(d => d.IsVirtualCable && !string.IsNullOrEmpty(d.DeviceId))
+        ?? devices.FirstOrDefault(d => d.IsVirtualCable);
+
+    public AudioDeviceInfo? FindPreferredMicrophone(IEnumerable<AudioDeviceInfo> devices) =>
+        devices.FirstOrDefault(d =>
+            !string.IsNullOrEmpty(d.DeviceId)
+            && !d.IsVirtualCable
+            && !d.IsStereoMix)
+        ?? devices.FirstOrDefault(d => !string.IsNullOrEmpty(d.DeviceId));
+
+    private static IReadOnlyList<AudioDeviceInfo> Enumerate(DataFlow flow, bool includeDefault)
     {
-        var devices = new List<AudioDeviceInfo>
+        var devices = new List<AudioDeviceInfo>();
+
+        if (includeDefault)
         {
-            new()
+            devices.Add(new AudioDeviceInfo
             {
-                DeviceNumber = -1,
-                Name = "Windows default device",
-                IsVirtualCable = false
-            }
-        };
+                DeviceId = string.Empty,
+                Name = flow == DataFlow.Capture
+                    ? "Windows default microphone"
+                    : "Windows default device",
+                IsVirtualCable = false,
+                IsStereoMix = false
+            });
+        }
 
         try
         {
-            var count = WaveOut.DeviceCount;
-            for (var i = 0; i < count; i++)
+            using var enumerator = new MMDeviceEnumerator();
+            foreach (var endpoint in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
             {
                 try
                 {
-                    var caps = WaveOut.GetCapabilities(i);
-                    var name = string.IsNullOrWhiteSpace(caps.ProductName)
-                        ? $"Device {i}"
-                        : caps.ProductName;
+                    var name = string.IsNullOrWhiteSpace(endpoint.FriendlyName)
+                        ? endpoint.ID
+                        : endpoint.FriendlyName;
 
                     devices.Add(new AudioDeviceInfo
                     {
-                        DeviceNumber = i,
+                        DeviceId = endpoint.ID,
                         Name = name,
-                        IsVirtualCable = IsVirtualCable(name)
+                        IsVirtualCable = IsVirtualCable(name),
+                        IsStereoMix = IsStereoMix(name)
                     });
                 }
                 catch
                 {
-                    // skip broken / unavailable device
+                    // skip broken / unavailable endpoint
+                }
+                finally
+                {
+                    endpoint.Dispose();
                 }
             }
         }
         catch
         {
-            // WaveOut unavailable - keep default device only
+            // WASAPI unavailable - keep default entry only
         }
 
         return devices;
     }
 
-    public AudioDeviceInfo? FindPreferredDiscordDevice(IEnumerable<AudioDeviceInfo> devices) =>
-        devices.FirstOrDefault(d => d.IsVirtualCable);
-
     private static bool IsVirtualCable(string name)
     {
         var lower = name.ToLowerInvariant();
         return VirtualCableHints.Any(hint => lower.Contains(hint));
+    }
+
+    private static bool IsStereoMix(string name)
+    {
+        var lower = name.ToLowerInvariant();
+        return StereoMixHints.Any(hint => lower.Contains(hint));
     }
 }

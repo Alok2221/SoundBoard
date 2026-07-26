@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     ];
 
     private readonly AudioPlaybackService _playback;
+    private readonly MicPassthroughService _micPassthrough;
     private readonly AudioDeviceService _devices;
     private readonly SettingsService _settingsService;
     private readonly HotkeyService _hotkeys;
@@ -28,11 +29,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<SoundPadViewModel> Pads { get; } = [];
     public ObservableCollection<AudioDeviceInfo> OutputDevices { get; } = [];
+    public ObservableCollection<AudioDeviceInfo> InputDevices { get; } = [];
 
     [ObservableProperty] private AudioDeviceInfo? _selectedDiscordDevice;
     [ObservableProperty] private AudioDeviceInfo? _selectedMonitorDevice;
+    [ObservableProperty] private AudioDeviceInfo? _selectedMicrophoneDevice;
     [ObservableProperty] private bool _enableMonitor = true;
+    [ObservableProperty] private bool _enableMicrophone = true;
     [ObservableProperty] private double _masterVolume = 0.85;
+    [ObservableProperty] private double _micVolume = 1.0;
     [ObservableProperty] private bool _overlapSounds = true;
     [ObservableProperty] private string _statusMessage = "Ready";
     [ObservableProperty] private bool _isPlaying;
@@ -40,11 +45,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel(
         AudioPlaybackService playback,
+        MicPassthroughService micPassthrough,
         AudioDeviceService devices,
         SettingsService settingsService,
         HotkeyService hotkeys)
     {
         _playback = playback;
+        _micPassthrough = micPassthrough;
         _devices = devices;
         _settingsService = settingsService;
         _hotkeys = hotkeys;
@@ -78,13 +85,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _hotkeys.Attach(window);
         RefreshDevices();
         LoadSettings();
+        ApplyMicPassthrough();
         UpdateDiscordHint();
     }
 
     public void RefreshDevices()
     {
-        var previousDiscord = SelectedDiscordDevice?.Name;
-        var previousMonitor = SelectedMonitorDevice?.Name;
+        var previousDiscord = SelectedDiscordDevice?.DeviceId;
+        var previousDiscordName = SelectedDiscordDevice?.Name;
+        var previousMonitor = SelectedMonitorDevice?.DeviceId;
+        var previousMonitorName = SelectedMonitorDevice?.Name;
+        var previousMic = SelectedMicrophoneDevice?.DeviceId;
+        var previousMicName = SelectedMicrophoneDevice?.Name;
 
         _suppressSave = true;
         try
@@ -93,19 +105,52 @@ public partial class MainViewModel : ObservableObject, IDisposable
             foreach (var device in _devices.GetOutputDevices())
                 OutputDevices.Add(device);
 
+            InputDevices.Clear();
+            foreach (var device in _devices.GetInputDevices())
+                InputDevices.Add(device);
+
             HasVirtualCable = OutputDevices.Any(d => d.IsVirtualCable);
 
-            SelectedDiscordDevice = OutputDevices.FirstOrDefault(d => d.Name == previousDiscord)
+            SelectedDiscordDevice = FindDevice(OutputDevices, previousDiscord, previousDiscordName)
                 ?? _devices.FindPreferredDiscordDevice(OutputDevices)
                 ?? OutputDevices.FirstOrDefault();
 
-            SelectedMonitorDevice = OutputDevices.FirstOrDefault(d => d.Name == previousMonitor)
+            SelectedMonitorDevice = FindDevice(OutputDevices, previousMonitor, previousMonitorName)
+                ?? OutputDevices.FirstOrDefault(d =>
+                    !d.IsVirtualCable && !string.IsNullOrEmpty(d.DeviceId))
                 ?? OutputDevices.FirstOrDefault();
+
+            SelectedMicrophoneDevice = FindDevice(InputDevices, previousMic, previousMicName)
+                ?? _devices.FindPreferredMicrophone(InputDevices)
+                ?? InputDevices.FirstOrDefault();
         }
         finally
         {
             _suppressSave = false;
         }
+
+        ApplyPlaybackSettings();
+        ApplyMicPassthrough();
+    }
+
+    private static AudioDeviceInfo? FindDevice(
+        IEnumerable<AudioDeviceInfo> devices,
+        string? deviceId,
+        string? name)
+    {
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            var byId = devices.FirstOrDefault(d =>
+                string.Equals(d.DeviceId, deviceId, StringComparison.Ordinal));
+            if (byId is not null)
+                return byId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(name))
+            return devices.FirstOrDefault(d =>
+                string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        return null;
     }
 
     private void LoadSettings()
@@ -115,22 +160,28 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             var settings = _settingsService.Load();
             MasterVolume = settings.MasterVolume;
+            MicVolume = settings.MicVolume;
             EnableMonitor = settings.EnableMonitor;
+            EnableMicrophone = settings.EnableMicrophone;
             OverlapSounds = settings.OverlapSounds;
 
-            if (!string.IsNullOrWhiteSpace(settings.DiscordOutputDeviceName))
-            {
-                SelectedDiscordDevice = OutputDevices.FirstOrDefault(d => d.Name == settings.DiscordOutputDeviceName)
-                    ?? OutputDevices.FirstOrDefault(d => d.DeviceNumber == settings.DiscordOutputDeviceNumber)
-                    ?? SelectedDiscordDevice;
-            }
+            SelectedDiscordDevice = FindDevice(
+                    OutputDevices,
+                    settings.DiscordOutputDeviceId,
+                    settings.DiscordOutputDeviceName)
+                ?? SelectedDiscordDevice;
 
-            if (!string.IsNullOrWhiteSpace(settings.MonitorOutputDeviceName))
-            {
-                SelectedMonitorDevice = OutputDevices.FirstOrDefault(d => d.Name == settings.MonitorOutputDeviceName)
-                    ?? OutputDevices.FirstOrDefault(d => d.DeviceNumber == settings.MonitorOutputDeviceNumber)
-                    ?? SelectedMonitorDevice;
-            }
+            SelectedMonitorDevice = FindDevice(
+                    OutputDevices,
+                    settings.MonitorOutputDeviceId,
+                    settings.MonitorOutputDeviceName)
+                ?? SelectedMonitorDevice;
+
+            SelectedMicrophoneDevice = FindDevice(
+                    InputDevices,
+                    settings.MicrophoneDeviceId,
+                    settings.MicrophoneDeviceName)
+                ?? SelectedMicrophoneDevice;
 
             Pads.Clear();
             foreach (var pad in settings.Pads.Where(p => File.Exists(p.FilePath)))
@@ -156,12 +207,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         var settings = new AppSettings
         {
-            DiscordOutputDeviceNumber = SelectedDiscordDevice?.DeviceNumber ?? -1,
+            DiscordOutputDeviceId = SelectedDiscordDevice?.DeviceId,
             DiscordOutputDeviceName = SelectedDiscordDevice?.Name,
-            MonitorOutputDeviceNumber = SelectedMonitorDevice?.DeviceNumber ?? -1,
+            MonitorOutputDeviceId = SelectedMonitorDevice?.DeviceId,
             MonitorOutputDeviceName = SelectedMonitorDevice?.Name,
+            MicrophoneDeviceId = SelectedMicrophoneDevice?.DeviceId,
+            MicrophoneDeviceName = SelectedMicrophoneDevice?.Name,
             EnableMonitor = EnableMonitor,
+            EnableMicrophone = EnableMicrophone,
             MasterVolume = MasterVolume,
+            MicVolume = MicVolume,
             OverlapSounds = OverlapSounds,
             Pads = Pads.Select(p => p.ToModel()).ToList()
         };
@@ -198,6 +253,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedDiscordDeviceChanged(AudioDeviceInfo? value)
     {
         ApplyPlaybackSettings();
+        ApplyMicPassthrough();
         UpdateDiscordHint();
         SaveSettings();
     }
@@ -208,9 +264,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SaveSettings();
     }
 
+    partial void OnSelectedMicrophoneDeviceChanged(AudioDeviceInfo? value)
+    {
+        ApplyMicPassthrough();
+        UpdateDiscordHint();
+        SaveSettings();
+    }
+
     partial void OnEnableMonitorChanged(bool value)
     {
         ApplyPlaybackSettings();
+        SaveSettings();
+    }
+
+    partial void OnEnableMicrophoneChanged(bool value)
+    {
+        ApplyMicPassthrough();
+        UpdateDiscordHint();
         SaveSettings();
     }
 
@@ -221,7 +291,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ScheduleSave();
     }
 
+    partial void OnMicVolumeChanged(double value)
+    {
+        _micPassthrough.MicVolume = (float)value;
+        OnPropertyChanged(nameof(MicVolumePercent));
+        ScheduleSave();
+    }
+
     public string MasterVolumePercent => $"{(int)Math.Round(MasterVolume * 100)}%";
+    public string MicVolumePercent => $"Mic {(int)Math.Round(MicVolume * 100)}%";
 
     partial void OnOverlapSoundsChanged(bool value)
     {
@@ -231,16 +309,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void ApplyPlaybackSettings()
     {
-        _playback.DiscordDeviceNumber = SelectedDiscordDevice?.DeviceNumber ?? -1;
-        _playback.MonitorDeviceNumber = SelectedMonitorDevice?.DeviceNumber ?? -1;
+        _playback.DiscordDeviceId = SelectedDiscordDevice?.DeviceId;
+        _playback.MonitorDeviceId = SelectedMonitorDevice?.DeviceId;
         _playback.EnableMonitor = EnableMonitor;
         _playback.MasterVolume = (float)MasterVolume;
         _playback.OverlapSounds = OverlapSounds;
     }
 
+    private void ApplyMicPassthrough()
+    {
+        _micPassthrough.MicVolume = (float)MicVolume;
+        _micPassthrough.Configure(
+            EnableMicrophone,
+            SelectedMicrophoneDevice?.DeviceId,
+            SelectedDiscordDevice?.DeviceId);
+
+        if (EnableMicrophone && !string.IsNullOrWhiteSpace(_micPassthrough.LastError))
+            StatusMessage = $"Mic error: {_micPassthrough.LastError}";
+    }
+
     private void UpdateDiscordHint()
     {
-        if (SelectedDiscordDevice?.IsVirtualCable == true)
+        if (EnableMicrophone && _micPassthrough.IsRunning)
+        {
+            var micName = SelectedMicrophoneDevice?.Name ?? "microphone";
+            StatusMessage = $"Mic live: {micName} → Discord cable";
+        }
+        else if (SelectedDiscordDevice?.IsVirtualCable == true)
         {
             StatusMessage = "Discord: set mic to CABLE Output / VB-Cable";
         }
@@ -545,6 +640,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         SaveSettings();
+        _micPassthrough.Dispose();
         _playback.Dispose();
         _hotkeys.Dispose();
     }
