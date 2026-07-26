@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="Soundboard"
+           Manufacturer="Soundboard"
+           Version="1.0.0"
+           UpgradeCode="A7F3C2E1-9B4D-4E8A-B2C5-1D6F8A9E0B3C"
+           Scope="perMachine"
+           Language="1033">
+
+    <SummaryInformation Description="Soundboard - local audio pads and Discord-ready playback"
+                        Manufacturer="Soundboard" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Soundboard is already installed. Please uninstall it first."
+                  Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon" SourceFile="..\resources\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK" Value="https://vb-audio.com/Cable/" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <!-- 64-bit Windows 10 / 11 -->
+    <Launch Condition="VersionNT64" Message="Soundboard requires 64-bit Windows 10 or Windows 11." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Soundboard" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramMenuFolder" Name="Soundboard" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="ProductFeature" Title="Soundboard" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(PublishDir)**">
+        <Exclude Files="$(PublishDir)**\*.pdb" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="StartMenuShortcut" Directory="AppProgramMenuFolder" Guid="B1C2D3E4-F5A6-4789-8B0C-1D2E3F4A5B6C">
+      <Shortcut Id="StartMenuShortcutLink"
+                Name="Soundboard"
+                Description="Play local sounds to Discord voice chat"
+                Target="[INSTALLFOLDER]SoundboardApp.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RemoveFolder Id="RemoveAppProgramMenuFolder" Directory="AppProgramMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\Soundboard\SoundboardApp"
+                     Name="StartMenuShortcut"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="C2D3E4F5-A6B7-4890-9C1D-2E3F4A5B6C7D">
+      <Shortcut Id="DesktopShortcutLink"
+                Name="Soundboard"
+                Description="Play local sounds to Discord voice chat"
+                Target="[INSTALLFOLDER]SoundboardApp.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\Soundboard\SoundboardApp"
+                     Name="DesktopShortcut"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>
